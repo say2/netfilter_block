@@ -1,6 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
-#include <cstring>
+#include <string.h>
 #include <unistd.h>
 #include <netinet/in.h>
 #include <linux/types.h>
@@ -19,7 +19,7 @@
 
 const char http_method[6][8]={"GET","POST","HEAD","PUT","DELETE","OPTIONS"};
 unsigned int method_len[6]={3,4,4,3,6,7};
-char *block_host;
+char block_host[50];
 void usage(){
     puts("./netfilter_block <host_name>");
 }
@@ -31,33 +31,40 @@ static int cb(struct nfq_q_handle *qh, struct nfgenmsg *nfmsg,
     struct nfqnl_msg_packet_hdr *ph;
     struct pkt_buff *pkt;
     struct tcphdr* tcp_h;
-    int id=0,payload_len,i;
+    struct iphdr* ip_h;
+    int id=0,payload_len,i,tcp_len;
     uint8_t *payload;
     uint8_t *tcp_payload;
     char *host,*tmp;
+
     ph = nfq_get_msg_packet_hdr(nfa);
     if (ph) {
         id = ntohl(ph->packet_id);
-        printf("hw_protocol=0x%04x hook=%u id=%u ",
-               ntohs(ph->hw_protocol), ph->hook, id);
+        //printf("hw_protocol=0x%04x hook=%u id=%u ", ntohs(ph->hw_protocol), ph->hook, id);
     }
-//print_pkt(nfa);
-    payload_len=nfq_get_payload(nfa,&payload);
-    pkt = pktb_alloc(AF_INET , data, payload_len, 0);
-    tcp_h = nfq_tcp_get_hdr(pkt);
 
+    payload_len=nfq_get_payload(nfa,&payload);
+    pkt = pktb_alloc(AF_INET , payload, payload_len, 0);
+    ip_h = nfq_ip_get_hdr(pkt);
+    nfq_ip_set_transport_header(pkt, ip_h);
+    tcp_h = nfq_tcp_get_hdr(pkt);
     if(tcp_h){
-        if(nfq_tcp_get_payload_len(tcp_h,pkt)>0){
+        tcp_len=nfq_tcp_get_payload_len(tcp_h,pkt);
+        if(tcp_len>0){
             tcp_payload=(uint8_t *)nfq_tcp_get_payload(tcp_h,pkt);
             for(i=0;i<METHOD_N;i++){
-                if(!strncmp((const char*)tcp_payload,http_method[i],method_len[i])){
+                if(tcp_payload&&!memcmp(tcp_payload,http_method[i],method_len[i])){
                     tmp=strstr((char*)tcp_payload,"Host:");
                     tmp=tmp+6;
                     if(tmp) {
                         host = strtok(tmp, "\r");
                         if(!strncmp(block_host,host,strlen(host))){
+                            printf("block %s",block_host);
+                            pktb_free(pkt);
                             return nfq_set_verdict(qh, id, NF_DROP, 0, NULL);
                         }
+                        else
+                            break;
                     }
                     else
                         break;
@@ -65,7 +72,8 @@ static int cb(struct nfq_q_handle *qh, struct nfgenmsg *nfmsg,
             }
         }
     }
-    printf("entering callback\n");
+    //printf("entering callback\n");
+    pktb_free(pkt);
     return nfq_set_verdict(qh, id, NF_ACCEPT, 0, NULL);
 }
 
@@ -77,11 +85,13 @@ int main(int argc, char **argv)
     int fd;
     int rv;
     char buf[4096] __attribute__ ((aligned));
-
-    if(argc!=2){
+    int debug=0;
+    if(argc!=2&&debug==0){
         usage();
         return -1;
     }
+    if(debug==1)
+        argv[1]="www.naver.com";
     strcpy(block_host,argv[1]);
     printf("opening library handle\n");
     h = nfq_open();
