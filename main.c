@@ -10,13 +10,14 @@
 #include <errno.h>
 
 #include <libnetfilter_queue/libnetfilter_queue.h>
+#define bool int
 #include <libnetfilter_queue/pktbuff.h>
+#undef bool
 #include <libnetfilter_queue/libnetfilter_queue_tcp.h>
-#include <libnetfilter_queue/libnetfilter_queue_ipv4.h>
 
 #define METHOD_N 6
 
-const char http_method[8][6]={"GET","POST","HEAD","PUT","DELETE","OPTIONS"};
+const char http_method[6][8]={"GET","POST","HEAD","PUT","DELETE","OPTIONS"};
 unsigned int method_len[6]={3,4,4,3,6,7};
 char *block_host;
 void usage(){
@@ -47,12 +48,13 @@ static int cb(struct nfq_q_handle *qh, struct nfgenmsg *nfmsg,
 
     if(tcp_h){
         if(nfq_tcp_get_payload_len(tcp_h,pkt)>0){
-            tcp_payload=nfq_tcp_get_payload(tcp_h,pkt);
+            tcp_payload=(uint8_t *)nfq_tcp_get_payload(tcp_h,pkt);
             for(i=0;i<METHOD_N;i++){
                 if(!strncmp((const char*)tcp_payload,http_method[i],method_len[i])){
-                    tmp=strstr((const char*)tcp_payload,"Host:")+6;
+                    tmp=strstr((char*)tcp_payload,"Host:");
+                    tmp=tmp+6;
                     if(tmp) {
-                        host = strtok(tmp, '\r');
+                        host = strtok(tmp, "\r");
                         if(!strncmp(block_host,host,strlen(host))){
                             return nfq_set_verdict(qh, id, NF_DROP, 0, NULL);
                         }

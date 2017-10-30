@@ -1,10 +1,10 @@
 all: netfilter_block
 
 netfilter_block: main.o
-	g++ -o netfilter_block main.o -lnetfilter_queue
+	gcc -o netfilter_block main.o -lnetfilter_queue
 
-main.o : main.cpp
-	g++ -c -o main.o main.cpp
+main.o : main.c
+	gcc -c -o main.o main.c
 
 clean:
 	rm *.o netfilter_block
